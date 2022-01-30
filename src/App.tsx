@@ -2,7 +2,13 @@
 import { css } from '@emotion/react';
 
 import { Header } from './Header';
-
+import { useSelector, useDispatch } from 'react-redux';
+import {
+  importFromFile,
+  moveGeocodes,
+  calculateGeofences,
+  updateTolerance,
+} from './geocodes';
 import {
   fontFamily,
   fontSize,
@@ -28,6 +34,7 @@ import { GeoCodeInfo } from './GeoCodeInfo';
 import InteractiveMap from 'react-map-gl';
 import mapboxgl, { Map } from 'mapbox-gl';
 import { getSourceMapRange } from 'typescript';
+import { RootState } from './store';
 let isCursorOverPoint: boolean = false;
 let interactiveLayerIds1: Array<string> = ['0', '1', '2'];
 const mapController = new MyMapController();
@@ -53,6 +60,31 @@ function exportFunction() {
   a.click();
 }
 function App() {
+  const batchGeocodes = useSelector(
+    (state: RootState) => state.geocodesReducer.points,
+  );
+  localStorage.setItem('geocodes', JSON.stringify(batchGeocodes));
+  let [activeDeliveryPoint, setActiveDeliveryPoint] = React.useState<number[]>([]);
+  const renderedGeoCodeInfo = activeDeliveryPoint.map((x) => {
+    return (
+      <div>
+        <button
+          onClick={() => {
+            handleClick(x);
+          }}
+        >
+          Click
+        </button>
+        <GeoCodeInfo props={batchGeocodes.features[x].properties} />
+      </div>
+    );
+  });
+
+  const geoFence = useSelector(
+    (state: RootState) => state.geocodesReducer.geofences,
+  );
+
+  const dispatch = useDispatch();
   //Set up states for component
   const mapRef = React.useRef<any>();
   const [viewport, setViewport] = React.useState({
@@ -60,22 +92,8 @@ function App() {
     longitude: -122.4376,
     zoom: 8,
   });
-  let [batchGeocodes, setBatchGeocodes] = React.useState<
-    GeoJSON.FeatureCollection<GeoJSON.Point>
-  >({
-    type: 'FeatureCollection',
-    features: [],
-  });
 
-  let [geoFence, setGeoFence] = React.useState<
-    GeoJSON.FeatureCollection<GeoJSON.Polygon>
-  >({
-    type: 'FeatureCollection',
-    features: [],
-  });
-  let [activeDeliveryPoint, setActiveDeliveryPoint] = React.useState<number[]>([-1]);
-
-  let [activeRoadPoint, setActiveRoadPoint] = React.useState<number[]>([-1]);
+  let [activeRoadPoint, setActiveRoadPoint] = React.useState<number[]>([]);
 
   let [dragPan, setDragPan] = React.useState<boolean>(true);
   let [dragRotate, setDragRotate] = React.useState<boolean>(true);
@@ -92,12 +110,18 @@ function App() {
         let temp: GeoJSON.FeatureCollection<GeoJSON.Point> = JSON.parse(
           JSON.parse(JSON.stringify(e.target!.result)),
         );
+        dispatch(importFromFile(temp));
+        dispatch(
+          calculateGeofences({
+            activePointPositions: Array.from(Array(temp.features.length).keys()),
+          }),
+        );
 
-        setBatchGeocodes(temp);
         localStorage.setItem('geocodes', JSON.stringify(temp));
         setActiveDeliveryPoint([0]);
         setActiveRoadPoint([1]);
-        // console.log(JSON.parse(JSON.stringify(e.target!.result)));
+        let temp2 = { ...layerStyleGeoFence, filter: ['in', 'position', 0] };
+        setLayerStyleGeoFence(temp2);
       };
     },
     [],
@@ -130,24 +154,11 @@ function App() {
             dPoint = e.features[0].properties.position;
             rPoint = e.features[0].properties.position + 1;
           }
-          //console.log(batchGeocodes);
-          let tempGeo = {
-            ...geoFence,
-            features: [
-              createGeoJSONCircle(
-                [
-                  batchGeocodes.features[dPoint]?.geometry.coordinates[1],
-                  batchGeocodes.features[dPoint]?.geometry.coordinates[0],
-                ],
-                batchGeocodes.features[dPoint].properties?.tolerance,
-                64,
-              ),
-            ],
-          };
 
-          setGeoFence(tempGeo);
           let temp = { ...layerStyle3, filter: ['in', 'position', dPoint, rPoint] };
           setLayerStyle3(temp);
+          temp = { ...layerStyleGeoFence, filter: ['in', 'position', dPoint] };
+          setLayerStyleGeoFence(temp);
         }
 
         isCursorOverPoint = true;
@@ -233,31 +244,14 @@ function App() {
               ['in', 'position'],
             );
           }
-          let geoFencesArr: any = [];
-          activeDP.forEach((x) =>
-            geoFencesArr.push(
-              createGeoJSONCircle(
-                [
-                  batchGeocodes.features[x]?.geometry.coordinates[1],
-                  batchGeocodes.features[x]?.geometry.coordinates[0],
-                ],
-                batchGeocodes.features[x].properties?.tolerance,
-                64,
-              ),
-            ),
-          );
-
-          let tempGeo = {
-            ...geoFence,
-            features: geoFencesArr,
-          };
-
-          setGeoFence(tempGeo);
+          //dispatch(calculateGeofences({ activePointPositions: activeDP }));
 
           setActiveDeliveryPoint(activeDP);
           setActiveRoadPoint(activeRP);
           let temp = { ...layerStyle3, filter: filter };
           setLayerStyle3(temp);
+          temp = { ...layerStyleGeoFence, filter: filter };
+          setLayerStyleGeoFence(temp);
         }
         new Promise((resolve) => {
           setTimeout(resolve, 100);
@@ -272,49 +266,29 @@ function App() {
 
   const onClick = React.useCallback(
     (e: MapEvent) => {
-      console.log(e);
-
       if (e.srcEvent.ctrlKey) {
-        let tempArr: GeoJSON.FeatureCollection<GeoJSON.Point> = JSON.parse(
-          JSON.stringify(batchGeocodes),
-        );
-
-        let idx = [-1];
         //move delivery point
         if (e.leftButton) {
-          idx = activeDeliveryPoint;
+          dispatch(
+            moveGeocodes({
+              activePointPositions: activeDeliveryPoint,
+              lngLat: e.lngLat,
+            }),
+          );
+          dispatch(
+            calculateGeofences({
+              activePointPositions: activeDeliveryPoint,
+            }),
+          );
         } //move road entry point
         else if (e.rightButton) {
-          idx = activeRoadPoint;
+          dispatch(
+            moveGeocodes({
+              activePointPositions: activeRoadPoint,
+              lngLat: e.lngLat,
+            }),
+          );
         }
-        idx.forEach((x) => {
-          tempArr.features[x].geometry.coordinates = e.lngLat;
-          console.log(tempArr.features[x].geometry.coordinates);
-        });
-
-        let geoFencesArr: any = [];
-        activeDeliveryPoint.forEach((x) =>
-          geoFencesArr.push(
-            createGeoJSONCircle(
-              [
-                tempArr.features[x].geometry.coordinates[1],
-                tempArr.features[x].geometry.coordinates[0],
-              ],
-              tempArr.features[x].properties?.tolerance,
-              64,
-            ),
-          ),
-        );
-
-        let tempGeo = {
-          ...geoFence,
-          features: geoFencesArr,
-        };
-
-        setGeoFence(tempGeo);
-
-        setBatchGeocodes(tempArr);
-        localStorage.setItem('geocodes', JSON.stringify(tempArr));
       }
     },
     [activeDeliveryPoint, activeRoadPoint, batchGeocodes, geoFence],
@@ -330,9 +304,6 @@ function App() {
             box = document.createElement('div');
             box.classList.add('boxdraw');
             document.body.appendChild(box);
-            //canvas.appendChild(box);
-            console.log(box);
-            console.log('inhere');
           }
 
           let minX = Math.min(start[0], current[0]),
@@ -361,52 +332,32 @@ function App() {
       tempArr.filter = tempArr.filter?.filter((n) => {
         return !((n !== x && !(n !== x + 1)) || (!(n !== x) && n !== x + 1));
       });
-      console.log(tempArr.filter);
+      // console.log(tempArr.filter);
       setActiveDeliveryPoint(activeDP);
       setActiveRoadPoint(activeRP);
       setLayerStyle3(tempArr);
+      let temp = { ...layerStyleGeoFence, filter: tempArr.filter };
+      setLayerStyleGeoFence(temp);
     },
     [activeDeliveryPoint, activeRoadPoint, layerStyle3],
   );
 
   const updateTolerances = React.useCallback(() => {
-    let tempArr: GeoJSON.FeatureCollection<GeoJSON.Point> = JSON.parse(
-      JSON.stringify(batchGeocodes),
+    dispatch(
+      updateTolerance({
+        activePointPositions: activeDeliveryPoint,
+        tolerance: toleranceVal,
+      }),
     );
-    let geoFencesArr: any = [];
-
-    activeDeliveryPoint.forEach((x) => {
-      if (tempArr.features[x].properties) {
-        tempArr.features[x].properties!.tolerance = toleranceVal;
-
-        geoFencesArr.push(
-          createGeoJSONCircle(
-            [
-              tempArr.features[x]?.geometry.coordinates[1],
-              tempArr.features[x]?.geometry.coordinates[0],
-            ],
-            toleranceVal,
-            64,
-          ),
-        );
-      }
-    });
-
-    let tempGeo = {
-      ...geoFence,
-      features: geoFencesArr,
-    };
-    setGeoFence(tempGeo);
-    setBatchGeocodes(tempArr);
-    localStorage.setItem('geocodes', JSON.stringify(tempArr));
+    dispatch(calculateGeofences({ activePointPositions: activeDeliveryPoint }));
   }, [activeDeliveryPoint, batchGeocodes, geoFence, toleranceVal]);
 
   const onChange = React.useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    console.log(e);
     setToleranceVal(parseInt(e.target.value));
   }, []);
+
   const onChangeMapStyle = React.useCallback((e: ChangeEvent<HTMLSelectElement>) => {
-    console.log(e.target.value);
+    // console.log(e.target.value);
     if (e.target.value === 'streets') {
       setMapStyle('mapbox://styles/mapbox/streets-v11');
     } else if (e.target.value === 'satellite') {
@@ -451,24 +402,7 @@ function App() {
           <div>
             <text>{activeDeliveryPoint.length}</text>
           </div>
-          <div>
-            {activeDeliveryPoint[0] < 0
-              ? null
-              : activeDeliveryPoint.map((x) => {
-                  return (
-                    <div>
-                      <button
-                        onClick={() => {
-                          handleClick(x);
-                        }}
-                      >
-                        Click
-                      </button>
-                      <GeoCodeInfo props={batchGeocodes.features[x].properties} />
-                    </div>
-                  );
-                })}
-          </div>
+          <div>{activeDeliveryPoint[0] < 0 ? null : renderedGeoCodeInfo}</div>
         </SideMenu>
         <ReactMapGL
           css={css``}

@@ -152,6 +152,7 @@ export const LayerStyleGeoFence: LayerProps = {
     'fill-color': 'rgb(51,204,254)',
     'fill-opacity': 0.1,
   },
+  filter: ['in', 'position'],
 };
 
 export const LayerStyleActivePoints: LayerProps = {
