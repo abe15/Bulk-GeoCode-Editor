@@ -1,6 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit';
 import geocodesReducer from './geocodes';
 
+//const persistedReducer = persistReducer(persistConfig, geocodesReducer);
 const store = configureStore({
   reducer: { geocodesReducer },
 });
