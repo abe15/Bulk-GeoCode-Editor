@@ -14,4 +14,4 @@ This tool enables a geocoder to:
 
 
 
-Used MapboxGL api, Redux for state store, Typescript, JSX, Javascript, Material UI, and React as the front end framework.
+I used MapboxGL api, Redux for state store, Typescript, JSX, Javascript as main programming language, Material UI for UI components, and React as the front end framework.
