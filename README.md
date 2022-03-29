@@ -15,3 +15,11 @@ This tool enables a geocoder to:
 
 
 I used MapboxGL api, Redux for state store, Typescript, JSX, Javascript as main programming language, Material UI for UI components, and React as the front end framework.
+
+
+![Hovering over 1 point](https://github.com/abe15/Bulk-GeoCode-Editor/blob/main/Hover%201.png)
+![Select multiple](https://github.com/abe15/Bulk-GeoCode-Editor/blob/main/Select%20multiple.png)
+![Edit all at once](https://github.com/abe15/Bulk-GeoCode-Editor/blob/main/Move%20all%20at%20once.png)
+
+
+
