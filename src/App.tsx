@@ -1,7 +1,6 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react';
 
-import { Header } from './Header';
 import { useSelector, useDispatch } from 'react-redux';
 import {
   importFromFile,
@@ -12,19 +11,18 @@ import {
   undoAction,
   setViewPort,
 } from './geocodes';
-import {
-  LayerStyleText,
-  LayerStyleGeoFence,
-  LayerStyleActivePoints,
-  LayerStyleBasePoints,
-} from './Styles';
+import { bbox, bboxPolygon, distance, pointsWithinPolygon } from '@turf/turf';
 
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-
+import DeckGL from '@deck.gl/react';
+import { GeoJsonLayer } from 'deck.gl';
 import React, { ChangeEvent } from 'react';
-import ReactMapGL, { MapEvent } from 'react-map-gl';
-import { Source } from 'react-map-gl';
-import { Layer } from 'react-map-gl';
+import StaticMap, { Layer, LayerProps, Source } from 'react-map-gl';
+import {
+  onDragStartHelper,
+  onDragHelper,
+  onDragEndHelper,
+  onClickHelper,
+} from './HelperFunctions';
 import SideMenu from './SideMenu';
 
 import { GeoCodeInfo } from './GeoCodeInfo';
@@ -43,10 +41,14 @@ import FormControl from '@material-ui/core/FormControl';
 import UpdateIcon from '@material-ui/icons/Update';
 
 import Typography from '@material-ui/core/Typography';
-
+import localforage from 'localforage';
 import InfoIcon from '@material-ui/icons/InfoOutlined';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+
+import hexRgb from 'hex-rgb';
+
+var md5 = require('md5');
 // The following is required to stop "npm build" from transpiling mapbox code.
 // notice the exclamation point in the import.
 // @ts-ignore
@@ -57,29 +59,60 @@ let isCursorOverPoint: boolean = false;
 
 // Variable to hold the starting xy coordinates
 // when `mousedown` occured.
-
-let start = [0, 0];
-let isDragging: boolean = false;
-// Variable to hold the current xy coordinates
-// when `mousemove` or `mouseup` occurs.
-let current = [0, 0];
-
 // Variable for the draw box element.
-let box: HTMLDivElement | null;
+let box: HTMLDivElement = document.createElement('div');
+document.body.appendChild(box);
+const boxdraw = css`
+  background: rgba(56, 135, 190, 0.1);
+  border: 2px solid #3887be;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+`;
+box.classList.add('boxdraw');
 function exportFunction() {
   var a = document.createElement('a');
-  var file = new Blob([localStorage.getItem('geocodes') as BlobPart], {
-    type: 'text/plain',
+  localforage.getItem('geocodes').then((x) => {
+    var file = new Blob([x as BlobPart], {
+      type: 'text/plain',
+    });
+    a.href = URL.createObjectURL(file);
+    a.download = 'json.txt';
+    a.click();
   });
-  a.href = URL.createObjectURL(file);
-  a.download = 'json.txt';
-  a.click();
 }
 function App() {
   const batchGeocodes = useSelector(
     (state: RootState) => state.geocodesReducer.points,
   );
-  localStorage.setItem('geocodes', JSON.stringify(batchGeocodes));
+  let [textData, setTextData] = React.useState<any[]>([]);
+  React.useEffect(() => {
+    // storing input name
+    localforage.setItem('geocodes', JSON.stringify(batchGeocodes));
+
+    let tempData = [];
+
+    batchGeocodes.features.forEach((element) => {
+      tempData.push({
+        //@ts-ignore
+        moduli: element.properties.moduli.toString(),
+        //@ts-ignore
+        coordinates: element.geometry.coordinates,
+      });
+    });
+    setTextData(tempData);
+  }, [batchGeocodes]);
+
+  // Variable to hold the current xy coordinates
+  // when `mousemove` or `mouseup` occurs.
+
+  let [currentPixels, setCurrentPixels] = React.useState<any[]>([0, 0]);
+  let [startPixels, setStartPixels] = React.useState<any[]>([0, 0]);
+  let [currentCoords, setCurrentCoords] = React.useState<any[]>([0, 0]);
+  let [startCoords, setStartCoords] = React.useState<any[]>([0, 0]);
+  let [isDragging, setIsDragging] = React.useState<boolean>(false);
   const activeDeliveryPoints = useSelector(
     (state: RootState) => state.geocodesReducer.activeDeliveryPoints.positions,
   );
@@ -87,15 +120,8 @@ function App() {
     (state: RootState) => state.geocodesReducer.activeRoadPoints.positions,
   );
 
-  const geoFence = useSelector(
+  const geoFences = useSelector(
     (state: RootState) => state.geocodesReducer.geofences,
-  );
-
-  const activeDPoints = useSelector(
-    (state: RootState) => state.geocodesReducer.activeDeliveryPoints.positions,
-  );
-  const activeRPoints = useSelector(
-    (state: RootState) => state.geocodesReducer.activeRoadPoints.positions,
   );
 
   const dispatch = useDispatch();
@@ -108,6 +134,7 @@ function App() {
   let [mapStyle, setMapStyle] = React.useState<string>(
     'mapbox://styles/mapbox/streets-v11',
   );
+  let [data, setData] = React.useState<any>({});
 
   let [toleranceVal, setToleranceVal] = React.useState<number>(25);
   //load new GeoJson file
@@ -141,179 +168,36 @@ function App() {
     [dispatch],
   );
 
-  //Controls
-  const onMouseEnter = React.useCallback(
-    (e: MapEvent) => {
+  const onHover = React.useCallback(
+    (info: any, e: any) => {
       if (!e.srcEvent.ctrlKey) {
-        if (e.features !== undefined) {
-          if (e.features[0].properties.type === 'roadEntry') {
-            dispatch(
-              setActiveDeliveryPoints({
-                activePointPositions: [e.features[0].properties.position - 1],
-              }),
-            );
-          } else if (e.features[0].properties.type === 'deliveryPoint') {
-            dispatch(
-              setActiveDeliveryPoints({
-                activePointPositions: [e.features[0].properties.position],
-              }),
-            );
-          }
-        }
-
-        isCursorOverPoint = true;
-      }
-    },
-    [dispatch],
-  );
-
-  const mousePos = React.useCallback((e: [number, number]) => {
-    let canvas = mapRef.current.getMap().getCanvasContainer();
-    const rect = canvas.getBoundingClientRect();
-
-    return [
-      e[0], //- rect.left, //- canvas.clientLeft,
-      e[1], //- rect.top, //- canvas.clientTop,
-    ];
-  }, []);
-
-  const onMouseLeave = React.useCallback((e: MapEvent) => {
-    if (!e.srcEvent.ctrlKey) {
-      isCursorOverPoint = false;
-      setDragPan(true);
-    }
-  }, []);
-
-  const onMouseDown = React.useCallback(
-    (e: MapEvent) => {
-      if (!isCursorOverPoint && e.srcEvent.shiftKey) {
-        if (e.srcEvent instanceof MouseEvent) {
-          setDragRotate(false);
-          setDragPan(false);
-          start = mousePos([e.srcEvent.clientX, e.srcEvent.clientY]);
-
-          isDragging = true;
-        }
-      }
-    },
-    [mousePos],
-  );
-
-  let onMouseUp = React.useCallback(
-    (e: MapEvent) => {
-      if (isDragging === true) {
-        if (e.srcEvent instanceof MouseEvent) {
-          if (box) {
-            box.parentNode?.removeChild(box);
-            box = null;
+        if (info.layer && info.layer.id && info.layer.id === 'geoPoints') {
+          if (info.object !== undefined) {
+            // console.log(info.object);
+            if (info.object && info.object.properties.type === 'roadEntry') {
+              dispatch(
+                setActiveDeliveryPoints({
+                  activePointPositions: [info.index - 1],
+                }),
+              );
+            } else if (
+              info.object &&
+              info.object.properties.type === 'deliveryPoint'
+            ) {
+              dispatch(
+                setActiveDeliveryPoints({
+                  activePointPositions: [info.index],
+                }),
+              );
+            }
           }
 
-          isDragging = false;
-          const features = mapRef.current.queryRenderedFeatures(
-            [
-              [start[0], start[1]],
-              [current[0], current[1]],
-            ],
-            {
-              layers: ['0', '1'],
-            },
-          );
-          let filter = ['in', 'position'];
-          let activeDP: number[] = [];
-
-          let activeRP: number[] = [];
-
-          if (features.length !== 0) {
-            console.log(features);
-            filter = features.reduce(
-              function (memo, x) {
-                if (!memo.includes(x.properties.position)) {
-                  memo.push(x.properties.position);
-                  if (x.properties.type === 'roadEntry') {
-                    activeDP.push(x.properties.position - 1);
-                    activeRP.push(x.properties.position);
-                    memo.push(x.properties.position - 1);
-                  } else if (x.properties.type === 'deliveryPoint') {
-                    activeDP.push(x.properties.position);
-                    activeRP.push(x.properties.position + 1);
-                    memo.push(x.properties.position + 1);
-                  }
-                }
-
-                return memo;
-              },
-              ['in', 'position'],
-            );
-          }
-          console.log(activeDP);
-          dispatch(setActiveDeliveryPoints({ activePointPositions: activeDP }));
-        }
-        //  setDragPan(true);
-        new Promise((resolve) => {
-          setTimeout(resolve, 100);
-        }).then(() => {
-          setDragRotate(true);
-          setDragPan(true);
-        });
-      }
-    },
-    [dispatch],
-  );
-
-  const onClick = React.useCallback(
-    (e: MapEvent) => {
-      if (e.srcEvent.ctrlKey) {
-        //move delivery point
-        if (e.leftButton) {
-          dispatch(
-            moveGeocodes({
-              lngLat: e.lngLat,
-              pointType: 'delivery',
-            }),
-          );
-        } //move road entry point
-        else if (e.rightButton) {
-          dispatch(
-            moveGeocodes({
-              lngLat: e.lngLat,
-              pointType: 'roadEntry',
-            }),
-          );
+          isCursorOverPoint = true;
         }
       }
     },
     [dispatch],
   );
-
-  const onMouseMove = React.useCallback(
-    (e: MapEvent) => {
-      if (isDragging) {
-        if (e.srcEvent instanceof MouseEvent) {
-          current = mousePos([e.srcEvent.clientX, e.srcEvent.clientY]);
-
-          if (!box) {
-            box = document.createElement('div');
-            box.classList.add('boxdraw');
-            document.body.appendChild(box);
-          }
-
-          let minX = Math.min(start[0], current[0]),
-            maxX = Math.max(start[0], current[0]),
-            minY = Math.min(start[1], current[1]),
-            maxY = Math.max(start[1], current[1]);
-
-          // Adjust width and xy position of the box element ongoing
-          let pos = 'translate(' + minX + 'px,' + minY + 'px)';
-          box.style.transform = pos;
-          //box.style.webkitTransform = pos;
-          box.style.width = maxX - minX + 'px';
-          box.style.height = maxY - minY + 'px';
-        }
-      }
-    },
-    [mousePos],
-  );
-
   const handleClick = React.useCallback(
     (x: number) => {
       dispatch(deactivatePoint({ whichPoint: x }));
@@ -347,8 +231,139 @@ function App() {
     dispatch(undoAction({}));
   }, [dispatch]);
 
+  let layer = [
+    new GeoJsonLayer({
+      //@ts-ignore
+      data: geoFences,
+      id: 'geofences',
+      pointType: 'circle',
+      //circle settings
+      getFillColor: (d: any) =>
+        d.properties.type === 'deliveryPoint'
+          ? [38, 247, 253, 100]
+          : [247, 0, 39, 100],
+      getLineWidth: 1,
+      getLineColor: (d: any) =>
+        d.properties.type === 'deliveryPoint'
+          ? [38, 247, 253, 100]
+          : [247, 0, 39, 100],
+      getPointRadius: (d: any) => {
+        //console.log(d);
+        if (
+          activeDeliveryPoints
+            .concat(activeRoadPoints)
+            .includes(d.properties.position)
+        ) {
+          return d.properties.type === 'deliveryPoint' ? d.properties.tolerance : 8;
+        }
+        return 0;
+      },
+      pointRadiusUnits: 'meters',
+      pointRadiusScale: 1,
+      autoHighlight: true,
+      pickable: false,
+      pointBillboard: false,
+      filled: true,
+      updateTriggers: {
+        getPointRadius: activeDeliveryPoints,
+      },
+      parameters: {
+        depthTest: false,
+        blend: true,
+        desynchronized: false,
+        antialias: true,
+        stencil: true,
+      },
+    }),
+
+    new GeoJsonLayer({
+      //@ts-ignore
+      data: batchGeocodes,
+      id: 'geoPoints',
+      pointType: 'circle+text',
+
+      pointAntialiasing: true,
+      getLineWidth: 2,
+      //circle settings
+      getFillColor: (d: any) => {
+        if (d.properties.type === 'deliveryPoint') {
+          return [38, 247, 253, 255];
+        } else {
+          return [247, 0, 39, 255];
+        }
+      },
+      getLineColor: (d: any) => {
+        if (d.properties.type === 'deliveryPoint') {
+          var numberPattern = /\d+/g;
+
+          var t1 = d.properties.addressLine1.match(numberPattern);
+          if (t1) {
+            var l = hexRgb(md5(t1[0]).substring(0, 6));
+            return [0, l.blue, l.green, 255];
+            //return [1, 1, 1, 255];
+          }
+          return [38, 247, 253, 255];
+        } else {
+          return [247, 0, 39, 255];
+        }
+      },
+      getPointRadius: (d: any) => (d.properties.type === 'deliveryPoint' ? 8 : 8),
+      pointRadiusUnits: 'pixels',
+      pointRadiusScale: 1,
+      autoHighlight: false,
+      pickable: true,
+      pointBillboard: false,
+      filled: true,
+      //text settings
+      textFontWeight: 'normal',
+
+      getText: (d: any) => {
+        var numberPattern = /\d+/g;
+        var t1 = d.properties.addressLine1.match(numberPattern);
+        var t2 = d.properties.addressLine2.match(numberPattern);
+        if (t1 && t1.length === 2) {
+          return 'APT' + t1[1];
+        }
+        if (t2) {
+          return 'APT' + t2[0];
+        }
+        return d.properties.moduli.toString();
+      },
+      getTextColor: (d: any) => [0, 0, 0, 255],
+      textFontFamily: 'Helvetica Neue',
+      textSizeUnits: 'pixels',
+
+      textBillboard: true,
+      textBackground: false,
+      textCharacterSet: 'auto',
+      getTextSize: (d: any) => (d.properties.type === 'deliveryPoint' ? 16 : 16),
+      textSizeScale: 1,
+      textOutlineWidth: 1,
+      textSizeMaxPixels: 42,
+      elevationScale: 100,
+      getElevation: 10,
+      textFontSettings: {
+        buffer: 5,
+        sdf: true,
+        cutoff: 0.5,
+        radius: 0,
+        smoothing: 0.4,
+      },
+
+      opacity: 1,
+      parameters: {
+        depthTest: false,
+        blend: false,
+        desynchronized: true,
+        antialias: true,
+        stencil: true,
+        powerPreference: 'high-performance',
+      },
+    }),
+  ];
+
   return (
-    <BrowserRouter>
+    <div>
       <div
         css={css`
           display: block;
@@ -442,11 +457,12 @@ function App() {
             <List component="nav">
               {activeDeliveryPoints[0] < 0
                 ? null
-                : activeDeliveryPoints.map((x) => {
+                : activeDeliveryPoints.map((x, idx) => {
                     return (
                       <>
                         <ListItem
                           button
+                          key={idx.toString()}
                           onClick={() => {
                             handleClick(x);
                           }}
@@ -462,72 +478,70 @@ function App() {
             </List>
           </div>
         </SideMenu>
-        <ReactMapGL
-          css={css`
-            overflow: hidden;
-          `}
-          {...viewport}
-          width="100vw"
-          height="100vh"
-          interactiveLayerIds={['0']}
-          onMouseEnter={onMouseEnter}
-          onMouseLeave={onMouseLeave}
-          onMouseDown={onMouseDown}
-          onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp}
-          onClick={onClick}
-          dragPan={dragPan}
-          dragRotate={dragRotate}
-          mapStyle={mapStyle}
-          onViewportChange={(nextViewport: any) =>
-            dispatch(
-              setViewPort({
-                latitude: nextViewport!.latitude,
-                longitude: nextViewport!.longitude,
-                altitude: nextViewport!.altitude,
-                bearing: nextViewport!.bearing,
-                height: nextViewport!.height,
-                maxPitch: nextViewport!.maxPitch,
-                maxZoom: nextViewport!.maxZoom,
-                minPitch: nextViewport!.minPitch,
-                minZoom: nextViewport!.minZoom,
-                pitch: nextViewport!.pitch,
-                transitionDuration: nextViewport!.transitionDuration,
-                width: nextViewport!.width,
-                transitionInterruption: nextViewport!.transitionInterruption,
-                zoom: nextViewport!.zoom,
-              }),
-            )
-          }
-          mapboxApiAccessToken="pk.eyJ1Ijoic2NocmFtZXIiLCJhIjoiZE1xaHJ0VSJ9.fWza13i01BBb7o7VjFu6hA"
-          ref={mapRef}
-        >
-          {batchGeocodes && (
-            <Source type="geojson" data={batchGeocodes}>
-              <Layer
-                {...{
-                  ...LayerStyleActivePoints,
-                  filter: ['in', 'position', ...activeDPoints, ...activeRPoints],
-                }}
-                id="2"
-              />
-              <Layer {...LayerStyleBasePoints} id="0" />
-              <Layer {...LayerStyleText} id="1" />
-            </Source>
-          )}
-          <Source type="geojson" data={geoFence}>
-            <Layer
-              {...{
-                ...LayerStyleGeoFence,
-                filter: ['in', 'position', ...activeDPoints],
-              }}
-              id="3"
-            />
-          </Source>
-        </ReactMapGL>
+
+        <div onContextMenu={(evt) => evt.preventDefault()}>
+          <DeckGL
+            initialViewState={viewport}
+            //@ts-ignorets-ignore
+            controller={{ dragPan: dragPan, dragRotate: dragRotate }}
+            width="100vw"
+            height="100vh"
+            ref={mapRef}
+            onHover={(info, e) => onHover(info, e)}
+            onClick={(info, e) => onClickHelper(info, e, dispatch, moveGeocodes)}
+            onDragStart={(info, e) => {
+              //console.log(e.srcEvent);
+              onDragStartHelper(
+                info,
+                e,
+                setDragPan,
+                setDragRotate,
+                setStartPixels,
+                setStartCoords,
+                setIsDragging,
+              );
+            }}
+            onDrag={(info, e) => {
+              onDragHelper(
+                info,
+                e,
+                setCurrentPixels,
+                setCurrentCoords,
+                startPixels,
+                currentPixels,
+                isDragging,
+                box,
+              );
+            }}
+            onDragEnd={(info, e) => {
+              onDragEndHelper(
+                info,
+                e,
+                startCoords,
+                mapRef,
+                setDragPan,
+                setDragRotate,
+                dispatch,
+                setActiveDeliveryPoints,
+                isDragging,
+                setIsDragging,
+                box,
+                batchGeocodes,
+              );
+            }}
+            layers={layer}
+          >
+            <StaticMap
+              reuseMaps
+              mapStyle={mapStyle}
+              mapboxAccessToken={
+                'pk.eyJ1Ijoic2NocmFtZXIiLCJhIjoiZE1xaHJ0VSJ9.fWza13i01BBb7o7VjFu6hA'
+              }
+            ></StaticMap>
+          </DeckGL>
+        </div>
       </div>
-    </BrowserRouter>
+    </div>
   );
 }
-
 export default App;

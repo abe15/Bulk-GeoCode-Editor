@@ -1,22 +1,23 @@
 import { createSlice, current } from '@reduxjs/toolkit';
 import GeoJSON from 'geojson';
-import { createGeoJSONCircle } from './HelperFunctions';
+
 import storage from 'redux-persist/lib/storage';
 import persistReducer from 'redux-persist/es/persistReducer';
 
-const persistConfig = {
-  key: 'root',
-  storage,
-};
 const initialState = {
   points: {
+    type: 'FeatureCollection',
+    features: [],
+  } as GeoJSON.FeatureCollection<GeoJSON.Point>,
+
+  pointsData: {
     type: 'FeatureCollection',
     features: [],
   } as GeoJSON.FeatureCollection<GeoJSON.Point>,
   geofences: {
     type: 'FeatureCollection',
     features: [],
-  } as GeoJSON.FeatureCollection<GeoJSON.Polygon>,
+  } as GeoJSON.FeatureCollection<GeoJSON.Point>,
   activeDeliveryPoints: { positions: [] as number[] },
   activeRoadPoints: { positions: [] as number[] },
   pastPoints: {
@@ -51,29 +52,32 @@ export const geoCodeSlice = createSlice({
   reducers: {
     importFromFile: (state, action) => {
       state.points = action.payload.r;
+
       let activePointPositions = Array.from(
         Array(action.payload.r.features.length).keys(),
       );
       state.geofences = {
         type: 'FeatureCollection',
         features: [],
-      } as GeoJSON.FeatureCollection<GeoJSON.Polygon>;
+      } as GeoJSON.FeatureCollection<GeoJSON.Point>;
       let geoFencesArr = state.geofences.features;
       activePointPositions.forEach((x) => {
-        geoFencesArr.push(
-          createGeoJSONCircle(
-            [
-              state.points.features[x]?.geometry.coordinates[1],
-              state.points.features[x]?.geometry.coordinates[0],
-            ],
-            state.points.features[x].properties?.tolerance,
-            64,
-          ),
-        );
-
-        geoFencesArr[x].properties!['position'] = x;
+        geoFencesArr.push({
+          type: 'Feature',
+          properties: {
+            tolerance: state.points.features[x].properties?.tolerance,
+            type: state.points.features[x].properties?.type,
+            position: x,
+            active: 0,
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: state.points.features[x]?.geometry.coordinates,
+          },
+        });
       });
     },
+
     moveGeocodes: (state, action) => {
       //console.log(current(state));
       //state.pastActiveDeliveryPoints = { positions: [] as number[] };
@@ -84,19 +88,12 @@ export const geoCodeSlice = createSlice({
       if (action.payload.pointType === 'delivery') {
         state.activeDeliveryPoints.positions.forEach((x) => {
           state.points.features[x].geometry.coordinates = action.payload.lngLat;
-          state.geofences.features[x] = createGeoJSONCircle(
-            [
-              state.points.features[x]?.geometry.coordinates[1],
-              state.points.features[x]?.geometry.coordinates[0],
-            ],
-            state.points.features[x].properties?.tolerance,
-            64,
-          );
-          state.geofences.features[x].properties!['position'] = x;
+          state.geofences.features[x].geometry.coordinates = action.payload.lngLat;
         });
       } else {
         state.activeRoadPoints.positions.forEach((x) => {
           state.points.features[x].geometry.coordinates = action.payload.lngLat;
+          state.geofences.features[x].geometry.coordinates = action.payload.lngLat;
         });
       }
     },
@@ -105,16 +102,7 @@ export const geoCodeSlice = createSlice({
       state.pastGeofences = JSON.parse(JSON.stringify(state.geofences));
       // state.pastPoints = Object.assign(state.points);
       state.activeDeliveryPoints.positions.forEach((x) => {
-        state.points.features[x].properties!.tolerance = action.payload.tolerance;
-        state.geofences.features[x] = createGeoJSONCircle(
-          [
-            state.points.features[x]?.geometry.coordinates[1],
-            state.points.features[x]?.geometry.coordinates[0],
-          ],
-          state.points.features[x].properties?.tolerance,
-          64,
-        );
-        state.geofences.features[x].properties!['position'] = x;
+        state.geofences.features[x].properties!.tolerance = action.payload.tolerance;
       });
     },
     setActiveDeliveryPoints: (state, action) => {
@@ -123,6 +111,7 @@ export const geoCodeSlice = createSlice({
 
       action.payload.activePointPositions.forEach((x) => {
         tempDelivery.push(x);
+
         tempRoad.push(x + 1);
       });
       state.activeDeliveryPoints.positions = tempDelivery;
@@ -148,7 +137,7 @@ export const geoCodeSlice = createSlice({
       state.viewport.minPitch = action.payload.minPitch;
       state.viewport.zoom = action.payload.zoom;
       state.viewport.transitionDuration = action.payload.transitionDuration;
-      state.viewport.transitionInterruption = action.payload.transitionInterruption;
+      //state.viewport.transitionInterruption = action.payload.transitionInterruption;
     },
     undoAction: (state, action) => {
       console.log(current(state));
@@ -173,7 +162,7 @@ export const geoCodeSlice = createSlice({
     },
     calculateGeofences: (state, action) => {
       let geoFencesArr = state.geofences.features;
-      if (geoFencesArr.length === 0) {
+      /* if (geoFencesArr.length === 0) {
         action.payload.activePointPositions.forEach((x) => {
           geoFencesArr.push(
             createGeoJSONCircle(
@@ -200,8 +189,8 @@ export const geoCodeSlice = createSlice({
           );
           geoFencesArr[x].properties!['position'] = x;
         });
-      }
-      state.geofences.features = geoFencesArr;
+      }*/
+      // state.geofences.features = geoFencesArr;
     },
   },
 });
@@ -218,5 +207,5 @@ export const {
   setViewPort,
 } = geoCodeSlice.actions;
 
-//export default geoCodeSlice.reducer;
-export default persistReducer(persistConfig, geoCodeSlice.reducer);
+export default geoCodeSlice.reducer;
+//export default persistReducer(persistConfig, geoCodeSlice.reducer);

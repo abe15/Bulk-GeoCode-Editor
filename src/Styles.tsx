@@ -128,7 +128,7 @@ export const LayerStyleText: LayerProps = {
     'text-field': '{moduli}',
     'text-size': [
       'match',
-      ['get', 'type2'],
+      ['get', 'type'],
       'roadEntry',
       15,
       'deliveryPoint',
@@ -162,7 +162,7 @@ export const LayerStyleActivePoints: LayerProps = {
   paint: {
     'circle-radius': [
       'match',
-      ['get', 'type2'],
+      ['get', 'type'],
       'roadEntry',
       30,
       'deliveryPoint',
@@ -171,7 +171,7 @@ export const LayerStyleActivePoints: LayerProps = {
     ],
     'circle-color': [
       'match',
-      ['get', 'type2'],
+      ['get', 'type'],
       'roadEntry',
       'rgba(255,0,0,.5)',
       'deliveryPoint',
@@ -181,15 +181,15 @@ export const LayerStyleActivePoints: LayerProps = {
   },
   filter: ['in', 'position'],
 };
-export const LayerStyleBasePoints: LayerProps = {
-  id: 'point',
-  type: 'circle',
-  // source: 'points-data',
 
+export const LayerStyleBasePoints: LayerProps = {
+  type: 'circle',
+  source: 'points-data',
+  id: 'basepoints',
   paint: {
     'circle-radius': [
       'match',
-      ['get', 'type2'],
+      ['get', 'type'],
       'roadEntry',
       8,
       'deliveryPoint',
@@ -198,7 +198,7 @@ export const LayerStyleBasePoints: LayerProps = {
     ],
     'circle-color': [
       'match',
-      ['get', 'type2'],
+      ['get', 'type'],
       'roadEntry',
       '#f70027',
       'deliveryPoint',
@@ -207,5 +207,5 @@ export const LayerStyleBasePoints: LayerProps = {
     ],
   },
 
-  filter: ['in', 'type2', 'roadEntry', 'deliveryPoint'],
+  filter: ['in', 'type', 'roadEntry', 'deliveryPoint'],
 };

@@ -3,7 +3,7 @@ import { css } from '@emotion/react';
 import { Paper } from '@material-ui/core';
 
 import React from 'react';
-import { Upload } from './JSONInput';
+
 const drawerWidth = 240;
 
 export default function SideMenu(props: any) {

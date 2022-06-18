@@ -37,6 +37,7 @@ export const GeoCodeInfo = ({ props }: any) => (
     <div>{props.countryCode}</div>
     <div>{'NAK: ' + props.normalizedKey}</div>
     <div>{'Tolerance: ' + props.tolerance}</div>
+    <div>{'addressii: ' + props.addressId}</div>
     <br />
   </div>
 );
