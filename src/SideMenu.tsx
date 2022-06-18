@@ -1,5 +1,6 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react';
+import { Paper } from '@material-ui/core';
 
 import React from 'react';
 import { Upload } from './JSONInput';
@@ -7,19 +8,24 @@ const drawerWidth = 240;
 
 export default function SideMenu(props: any) {
   return (
-    <div
+    <Paper
+      elevation={5}
       css={css`
         z-index: 99;
         float: left;
-        top: 100px;
-        position: absolute;
-        background-color: whitesmoke;
+        top: 50px;
+        position: relative;
+        background-color: #fff;
         height: 85vh;
-        width: 250px;
-        overflow-y: scroll;
+        padding: 0px 10px 0px 5px;
+        width: 310px;
+        overflow-y: 'scroll';
+        overflow-x: 'hidden';
+        display: flex;
+        flex-direction: column;
       `}
     >
       {props.children}
-    </div>
+    </Paper>
   );
 }

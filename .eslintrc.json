@@ -8,6 +8,7 @@
         "endOfLine": "auto"
       }
     ],
-    "no-param-reassign": "warn"
+    "no-param-reassign": "warn",
+    "import/no-webpack-loader-syntax": "off"
   }
 }

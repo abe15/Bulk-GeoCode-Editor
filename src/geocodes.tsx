@@ -3,7 +3,7 @@ import GeoJSON from 'geojson';
 import { createGeoJSONCircle } from './HelperFunctions';
 import storage from 'redux-persist/lib/storage';
 import persistReducer from 'redux-persist/es/persistReducer';
-import { undoable } from './undo';
+
 const persistConfig = {
   key: 'root',
   storage,
@@ -23,12 +23,26 @@ const initialState = {
     type: 'FeatureCollection',
     features: [],
   } as GeoJSON.FeatureCollection<GeoJSON.Point>,
-  pastActiveDeliveryPoints: { positions: [] as number[] },
-  pastActiveRoadPoints: { positions: [] as number[] },
   pastGeofences: {
     type: 'FeatureCollection',
     features: [],
   } as GeoJSON.FeatureCollection<GeoJSON.Polygon>,
+  viewport: {
+    latitude: 37.8 as number,
+    longitude: -96 as number,
+    altitude: 1.5,
+    bearing: 0 as number,
+    height: 100 as number,
+    maxPitch: 85 as number,
+    maxZoom: 24 as number,
+    minPitch: 0 as number,
+    minZoom: 0 as number,
+    pitch: 0 as number,
+    transitionDuration: 0 as number,
+    width: 100 as number,
+    transitionInterruption: 1 as number,
+    zoom: 3 as number,
+  },
 };
 
 export const geoCodeSlice = createSlice({
@@ -37,33 +51,76 @@ export const geoCodeSlice = createSlice({
   reducers: {
     importFromFile: (state, action) => {
       state.points = action.payload.r;
+      let activePointPositions = Array.from(
+        Array(action.payload.r.features.length).keys(),
+      );
+      state.geofences = {
+        type: 'FeatureCollection',
+        features: [],
+      } as GeoJSON.FeatureCollection<GeoJSON.Polygon>;
+      let geoFencesArr = state.geofences.features;
+      activePointPositions.forEach((x) => {
+        geoFencesArr.push(
+          createGeoJSONCircle(
+            [
+              state.points.features[x]?.geometry.coordinates[1],
+              state.points.features[x]?.geometry.coordinates[0],
+            ],
+            state.points.features[x].properties?.tolerance,
+            64,
+          ),
+        );
+
+        geoFencesArr[x].properties!['position'] = x;
+      });
     },
     moveGeocodes: (state, action) => {
       //console.log(current(state));
-      state.pastActiveDeliveryPoints = { positions: [] as number[] };
+      //state.pastActiveDeliveryPoints = { positions: [] as number[] };
       state.pastPoints = JSON.parse(JSON.stringify(state.points));
+      state.pastGeofences = JSON.parse(JSON.stringify(state.geofences));
       // state.pastPoints = Object.assign(state.points);
-      action.payload.activePointPositions.forEach((x) => {
-        state.points.features[x].geometry.coordinates = action.payload.lngLat;
-      });
+
+      if (action.payload.pointType === 'delivery') {
+        state.activeDeliveryPoints.positions.forEach((x) => {
+          state.points.features[x].geometry.coordinates = action.payload.lngLat;
+          state.geofences.features[x] = createGeoJSONCircle(
+            [
+              state.points.features[x]?.geometry.coordinates[1],
+              state.points.features[x]?.geometry.coordinates[0],
+            ],
+            state.points.features[x].properties?.tolerance,
+            64,
+          );
+          state.geofences.features[x].properties!['position'] = x;
+        });
+      } else {
+        state.activeRoadPoints.positions.forEach((x) => {
+          state.points.features[x].geometry.coordinates = action.payload.lngLat;
+        });
+      }
     },
     updateTolerance: (state, action) => {
       state.pastPoints = JSON.parse(JSON.stringify(state.points));
+      state.pastGeofences = JSON.parse(JSON.stringify(state.geofences));
       // state.pastPoints = Object.assign(state.points);
-      action.payload.activePointPositions.forEach((x) => {
+      state.activeDeliveryPoints.positions.forEach((x) => {
         state.points.features[x].properties!.tolerance = action.payload.tolerance;
+        state.geofences.features[x] = createGeoJSONCircle(
+          [
+            state.points.features[x]?.geometry.coordinates[1],
+            state.points.features[x]?.geometry.coordinates[0],
+          ],
+          state.points.features[x].properties?.tolerance,
+          64,
+        );
+        state.geofences.features[x].properties!['position'] = x;
       });
     },
     setActiveDeliveryPoints: (state, action) => {
       let tempDelivery: number[] = [];
       let tempRoad: number[] = [];
-      state.pastPoints = {
-        type: 'FeatureCollection',
-        features: [],
-      };
-      state.pastActiveDeliveryPoints.positions =
-        state.activeDeliveryPoints.positions;
-      state.pastActiveRoadPoints.positions = state.activeRoadPoints.positions;
+
       action.payload.activePointPositions.forEach((x) => {
         tempDelivery.push(x);
         tempRoad.push(x + 1);
@@ -80,6 +137,19 @@ export const geoCodeSlice = createSlice({
         (n) => n !== action.payload.whichPoint + 1,
       );
     },
+    setViewPort: (state, action) => {
+      state.viewport.latitude = action.payload.latitude;
+      state.viewport.longitude = action.payload.longitude;
+      state.viewport.zoom = action.payload.zoom;
+      state.viewport.altitude = action.payload.altitude;
+      state.viewport.bearing = action.payload.bearing;
+      state.viewport.maxPitch = action.payload.maxPitch;
+      state.viewport.maxZoom = action.payload.maxZoom;
+      state.viewport.minPitch = action.payload.minPitch;
+      state.viewport.zoom = action.payload.zoom;
+      state.viewport.transitionDuration = action.payload.transitionDuration;
+      state.viewport.transitionInterruption = action.payload.transitionInterruption;
+    },
     undoAction: (state, action) => {
       console.log(current(state));
       if (state.pastPoints.features.length !== 0) {
@@ -90,13 +160,15 @@ export const geoCodeSlice = createSlice({
           features: [],
         };
       }
-      if (state.pastActiveDeliveryPoints.positions.length !== 0) {
-        state.activeRoadPoints.positions = state.pastActiveRoadPoints.positions;
-        state.activeDeliveryPoints.positions =
-          state.pastActiveDeliveryPoints.positions;
-        state.pastActiveDeliveryPoints = { positions: [] as number[] };
-        state.pastActiveRoadPoints = { positions: [] as number[] };
+      if (state.pastGeofences.features.length !== 0) {
+        const previous = state.pastGeofences;
+        state.geofences = previous;
+        state.pastGeofences = {
+          type: 'FeatureCollection',
+          features: [],
+        };
       }
+
       console.log(current(state));
     },
     calculateGeofences: (state, action) => {
@@ -134,8 +206,6 @@ export const geoCodeSlice = createSlice({
   },
 });
 
-//const undoableReducer = undoable(geoCodeSlice.reducer);
-//const persistedReducer = persistReducer(persistConfig, undoableReducer.reducer);
 // Action creators are generated for each case reducer function
 export const {
   importFromFile,
@@ -145,7 +215,8 @@ export const {
   setActiveDeliveryPoints,
   deactivatePoint,
   undoAction,
+  setViewPort,
 } = geoCodeSlice.actions;
-//export const { undoAction } = undoableReducer.actions;
 
-export default geoCodeSlice.reducer;
+//export default geoCodeSlice.reducer;
+export default persistReducer(persistConfig, geoCodeSlice.reducer);

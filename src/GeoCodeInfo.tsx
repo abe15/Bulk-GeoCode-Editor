@@ -40,17 +40,3 @@ export const GeoCodeInfo = ({ props }: any) => (
     <br />
   </div>
 );
-/*
- <div>
-    <div>{'AddressLine 1: ' + props.addressLine1}</div>
-    <div>{'AddressLine 2: ' + props.addressLine2}</div>
-    <div>{'City: ' + props.city}</div>
-    <div>{'State: ' + props.state}</div>
-    <div>{'Postal Code: ' + props.postalCode}</div>
-    <div>{'Country Code: ' + props.countryCode}</div>
-    <div>{'NAK: ' + props.normalizedKey}</div>
-    <div>{'Tolerance: ' + props.tolerance}</div>
-    <br />
-  </div>
-
-*/

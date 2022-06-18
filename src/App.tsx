@@ -6,11 +6,11 @@ import { useSelector, useDispatch } from 'react-redux';
 import {
   importFromFile,
   moveGeocodes,
-  calculateGeofences,
   updateTolerance,
   setActiveDeliveryPoints,
   deactivatePoint,
   undoAction,
+  setViewPort,
 } from './geocodes';
 import {
   LayerStyleText,
@@ -18,22 +18,42 @@ import {
   LayerStyleActivePoints,
   LayerStyleBasePoints,
 } from './Styles';
-import { createGeoJSONCircle } from './HelperFunctions';
+
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { SVGOverlay } from 'react-map-gl';
-import { NotFoundPage } from './NotFoundPage';
+
 import React, { ChangeEvent } from 'react';
-import ReactMapGL, { LayerProps, MapEvent } from 'react-map-gl';
+import ReactMapGL, { MapEvent } from 'react-map-gl';
 import { Source } from 'react-map-gl';
 import { Layer } from 'react-map-gl';
 import SideMenu from './SideMenu';
-import MyMapController from './MyMapController';
+
 import { GeoCodeInfo } from './GeoCodeInfo';
 import { RootState } from './store';
+import TextField from '@material-ui/core/TextField';
+import List from '@material-ui/core/List';
+import ListItem from '@material-ui/core/ListItem';
 
+import Divider from '@material-ui/core/Divider';
+import Button from '@material-ui/core/Button';
+
+import Radio from '@material-ui/core/Radio';
+import RadioGroup from '@material-ui/core/RadioGroup';
+import FormControlLabel from '@material-ui/core/FormControlLabel';
+import FormControl from '@material-ui/core/FormControl';
+import UpdateIcon from '@material-ui/icons/Update';
+
+import Typography from '@material-ui/core/Typography';
+
+import InfoIcon from '@material-ui/icons/InfoOutlined';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+// The following is required to stop "npm build" from transpiling mapbox code.
+// notice the exclamation point in the import.
+// @ts-ignore
+// eslint-disable-next-line import/no-webpack-loader-syntax, import/no-unresolved
+mapboxgl.workerClass =
+  require('worker-loader!mapbox-gl/dist/mapbox-gl-csp-worker').default;
 let isCursorOverPoint: boolean = false;
-let interactiveLayerIds1: Array<string> = ['0', '1', '2'];
-const mapController = new MyMapController();
 
 // Variable to hold the starting xy coordinates
 // when `mousedown` occured.
@@ -59,7 +79,7 @@ function App() {
   const batchGeocodes = useSelector(
     (state: RootState) => state.geocodesReducer.points,
   );
-
+  localStorage.setItem('geocodes', JSON.stringify(batchGeocodes));
   const activeDeliveryPoints = useSelector(
     (state: RootState) => state.geocodesReducer.activeDeliveryPoints.positions,
   );
@@ -81,11 +101,7 @@ function App() {
   const dispatch = useDispatch();
   //Set up states for component
   const mapRef = React.useRef<any>();
-  const [viewport, setViewport] = React.useState({
-    latitude: 37.7577,
-    longitude: -122.4376,
-    zoom: 8,
-  });
+  const viewport = useSelector((state: RootState) => state.geocodesReducer.viewport);
 
   let [dragPan, setDragPan] = React.useState<boolean>(true);
   let [dragRotate, setDragRotate] = React.useState<boolean>(true);
@@ -107,19 +123,16 @@ function App() {
             JSON.parse(JSON.stringify(e.target!.result)),
           );
           dispatch(importFromFile({ r: temp }));
+
+          //dispatch(setActiveDeliveryPoints({ activePointPositions: [0] }));
+
           dispatch(
-            calculateGeofences({
-              activePointPositions: Array.from(Array(temp.features.length).keys()),
+            setViewPort({
+              latitude: temp.features[0].geometry.coordinates[1],
+              longitude: temp.features[0].geometry.coordinates[0],
+              zoom: 15,
             }),
           );
-
-          dispatch(setActiveDeliveryPoints({ activePointPositions: [0] }));
-
-          setViewport({
-            latitude: temp.features[0].geometry.coordinates[1],
-            longitude: temp.features[0].geometry.coordinates[0],
-            zoom: 15,
-          });
         } catch (e) {
           // console.log(e);
         }
@@ -232,9 +245,10 @@ function App() {
               ['in', 'position'],
             );
           }
-
+          console.log(activeDP);
           dispatch(setActiveDeliveryPoints({ activePointPositions: activeDP }));
         }
+        //  setDragPan(true);
         new Promise((resolve) => {
           setTimeout(resolve, 100);
         }).then(() => {
@@ -253,27 +267,22 @@ function App() {
         if (e.leftButton) {
           dispatch(
             moveGeocodes({
-              activePointPositions: activeDeliveryPoints,
               lngLat: e.lngLat,
-            }),
-          );
-          dispatch(
-            calculateGeofences({
-              activePointPositions: activeDeliveryPoints,
+              pointType: 'delivery',
             }),
           );
         } //move road entry point
         else if (e.rightButton) {
           dispatch(
             moveGeocodes({
-              activePointPositions: activeRoadPoints,
               lngLat: e.lngLat,
+              pointType: 'roadEntry',
             }),
           );
         }
       }
     },
-    [activeDeliveryPoints, activeRoadPoints, dispatch],
+    [dispatch],
   );
 
   const onMouseMove = React.useCallback(
@@ -315,22 +324,22 @@ function App() {
   const updateTolerances = React.useCallback(() => {
     dispatch(
       updateTolerance({
-        activePointPositions: activeDeliveryPoints,
         tolerance: toleranceVal,
       }),
     );
-    dispatch(calculateGeofences({ activePointPositions: activeDeliveryPoints }));
-  }, [activeDeliveryPoints, dispatch, toleranceVal]);
+  }, [dispatch, toleranceVal]);
 
-  const onChange = React.useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    setToleranceVal(parseInt(e.target.value));
-  }, []);
+  const onChange = React.useCallback(
+    (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setToleranceVal(parseInt(e.target.value));
+    },
+    [],
+  );
 
-  const onChangeMapStyle = React.useCallback((e: ChangeEvent<HTMLSelectElement>) => {
-    // console.log(e.target.value);
-    if (e.target.value === 'streets') {
+  const onChangeMapStyle = React.useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.value === 'mapbox://styles/mapbox/streets-v11') {
       setMapStyle('mapbox://styles/mapbox/streets-v11');
-    } else if (e.target.value === 'satellite') {
+    } else if (e.target.value === 'mapbox://styles/mapbox/satellite-v9') {
       setMapStyle('mapbox://styles/mapbox/satellite-v9');
     }
   }, []);
@@ -343,60 +352,120 @@ function App() {
       <div
         css={css`
           display: block;
+          overflow: hidden;
         `}
       >
-        <Header />
         <SideMenu>
-          <div>
-            <input type="file" onChange={handleChange} />
-          </div>
-          <div>
-            <button onClick={() => exportFunction()}>Export changes</button>
-          </div>
-          <select
-            id="selectedView"
-            onChange={(e) => {
-              onChangeMapStyle(e);
-            }}
-          >
-              <option value="streets">Streets View</option> 
-            <option value="satellite">Satellite View</option>
-          </select>
-          <div>
-            <input
-              type="text"
-              value={toleranceVal}
-              onChange={(e) => {
-                onChange(e);
+          <div style={{ position: 'sticky' }}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'row',
+                justifyContent: 'space-between',
               }}
-            ></input>
-            <button onClick={() => updateTolerances()}>Update tolerance</button>
-            <button onClick={() => undoUserAction()}>UNDO ACTION</button>
+            >
+              <Typography variant="h6"> Bulk GeoCode Data Editor</Typography>
+
+              <Button onClick={() => {}}>
+                <InfoIcon />
+              </Button>
+            </div>
+            <div style={{ display: 'block' }}>
+              <FormControl style={{ float: 'left' }}>
+                <RadioGroup
+                  aria-label="mapview"
+                  color="primary"
+                  name="mapview"
+                  value={mapStyle}
+                  onChange={(event, s) => {
+                    onChangeMapStyle(event);
+                  }}
+                >
+                  <FormControlLabel
+                    value="mapbox://styles/mapbox/streets-v11"
+                    control={<Radio color="primary" />}
+                    label="Street View"
+                  />
+                  <FormControlLabel
+                    value="mapbox://styles/mapbox/satellite-v9"
+                    control={<Radio color="primary" />}
+                    label="Satellite"
+                  />
+                </RadioGroup>
+              </FormControl>
+              <Button
+                style={{ float: 'right' }}
+                variant="outlined"
+                component="label"
+              >
+                Import File
+                <input type="file" hidden onChange={handleChange} />
+              </Button>
+              <Button
+                style={{ float: 'right' }}
+                variant="outlined"
+                onClick={() => exportFunction()}
+              >
+                Export
+              </Button>
+            </div>
+
+            <div style={{ paddingTop: '10vh', alignContent: 'center' }}>
+              <TextField
+                id="standard-secondary"
+                label="Tolerance"
+                value={toleranceVal}
+                variant="outlined"
+                onChange={(e) => {
+                  onChange(e);
+                }}
+              ></TextField>
+              <Button size="large" onClick={() => updateTolerances()}>
+                <UpdateIcon />
+              </Button>
+
+              <Button
+                style={{ textAlign: 'right' }}
+                onClick={() => undoUserAction()}
+              >
+                UNDO LAST ACTION
+              </Button>
+            </div>
+
+            <div style={{ textAlign: 'center', float: 'inline-end' }}>
+              <Typography variant="subtitle1">
+                {activeDeliveryPoints.length + ' Active Delivery Points'}
+              </Typography>
+            </div>
           </div>
-          <div>
-            <text>{activeDeliveryPoints.length}</text>
-          </div>
-          <div>
-            {activeDeliveryPoints[0] < 0
-              ? null
-              : activeDeliveryPoints.map((x) => {
-                  return (
-                    <div>
-                      <button
-                        onClick={() => {
-                          handleClick(x);
-                        }}
-                      >
-                        Click
-                      </button>
-                      <GeoCodeInfo props={batchGeocodes.features[x].properties} />
-                    </div>
-                  );
-                })}
+          <div style={{ display: 'flex', overflowY: 'scroll', overflowX: 'hidden' }}>
+            <List component="nav">
+              {activeDeliveryPoints[0] < 0
+                ? null
+                : activeDeliveryPoints.map((x) => {
+                    return (
+                      <>
+                        <ListItem
+                          button
+                          onClick={() => {
+                            handleClick(x);
+                          }}
+                        >
+                          <GeoCodeInfo
+                            props={batchGeocodes.features[x].properties}
+                          />
+                        </ListItem>
+                        <Divider />
+                      </>
+                    );
+                  })}
+            </List>
           </div>
         </SideMenu>
         <ReactMapGL
-          css={css``}
+          css={css`
+            overflow: hidden;
+          `}
           {...viewport}
           width="100vw"
           height="100vh"
@@ -410,7 +479,26 @@ function App() {
           dragPan={dragPan}
           dragRotate={dragRotate}
           mapStyle={mapStyle}
-          onViewportChange={(nextViewport: any) => setViewport(nextViewport)}
+          onViewportChange={(nextViewport: any) =>
+            dispatch(
+              setViewPort({
+                latitude: nextViewport!.latitude,
+                longitude: nextViewport!.longitude,
+                altitude: nextViewport!.altitude,
+                bearing: nextViewport!.bearing,
+                height: nextViewport!.height,
+                maxPitch: nextViewport!.maxPitch,
+                maxZoom: nextViewport!.maxZoom,
+                minPitch: nextViewport!.minPitch,
+                minZoom: nextViewport!.minZoom,
+                pitch: nextViewport!.pitch,
+                transitionDuration: nextViewport!.transitionDuration,
+                width: nextViewport!.width,
+                transitionInterruption: nextViewport!.transitionInterruption,
+                zoom: nextViewport!.zoom,
+              }),
+            )
+          }
           mapboxApiAccessToken="pk.eyJ1Ijoic2NocmFtZXIiLCJhIjoiZE1xaHJ0VSJ9.fWza13i01BBb7o7VjFu6hA"
           ref={mapRef}
         >

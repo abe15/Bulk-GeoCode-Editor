@@ -6,6 +6,7 @@
     "@emotion/react": "^11.7.1",
     "@emotion/styled": "^11.6.0",
     "@material-ui/core": "^4.12.3",
+    "@material-ui/icons": "^4.11.2",
     "@reduxjs/toolkit": "^1.7.1",
     "@testing-library/jest-dom": "^5.16.1",
     "@testing-library/react": "^11.2.7",
@@ -16,23 +17,27 @@
     "@types/react-dom": "^16.9.14",
     "@types/react-map-gl": "^5.2.11",
     "history": "^5.2.0",
-    "mapbox-gl": "^2.6.1",
+    "mapbox-gl": "^2.7.1",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
     "react-hook-form": "^6.15.8",
+    "react-map-gl": "^6.1.19",
     "react-redux": "^7.2.6",
     "react-router-dom": "^6.2.1",
-    "react-scripts": "4.0.1",
+    "react-scripts": "^5.0.0",
     "redux": "^4.1.2",
     "redux-persist": "^6.0.0",
     "typescript": "^4.5.4",
-    "web-vitals": "^0.2.4"
+    "web-vitals": "^0.2.4",
+    "worker-loader": "^3.0.8"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start-client": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "starttwo": "react-scripts start",
+    "start": "npm run build && (cd server && npm start)"
   },
   "eslintConfig": {
     "extends": [
@@ -44,7 +49,9 @@
     "production": [
       ">0.2%",
       "not dead",
-      "not op_mini all"
+      "not op_mini all",
+      "not chrome < 51",
+      "not safari < 10"
     ],
     "development": [
       "last 1 chrome version",
@@ -58,7 +65,6 @@
     "eslint-plugin-prettier": "^3.4.1",
     "json-loader": "^0.5.7",
     "prettier": "^2.2.1",
-    "react-map-gl": "^6.1.18",
     "transform-loader": "^0.2.4",
     "webworkify-webpack": "^2.1.5"
   }

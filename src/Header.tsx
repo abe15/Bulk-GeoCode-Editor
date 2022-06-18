@@ -38,7 +38,7 @@ export const Header = () => {
         css={css`
           font-size: 16px;
           font-weight: bold;
-          color: ${gray1};
+          color: #121212;
           text-decoration: none;
         `}
       >
